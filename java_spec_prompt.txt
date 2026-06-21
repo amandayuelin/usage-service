@@ -1,0 +1,507 @@
+You are my senior backend engineering assistant for a timed backend engineering interview project.
+
+I want to use spec-driven development.
+
+Before writing any implementation code, create a concise but complete SPEC.md for the service described in the problem statement.
+
+The goal is to build a production-candidate REST API service, not a toy script.
+
+The implementation target is:
+
+- Java
+- Spring Boot
+- PostgreSQL
+- Docker
+- docker-compose
+- DigitalOcean App Platform deployment
+
+The SPEC.md should guide implementation, testing, Dockerization, deployment, and architecture review.
+
+Follow these principles:
+
+- Think before coding.
+- Do not silently invent requirements.
+- State assumptions explicitly.
+- Prefer simple, working, testable software over over-engineering.
+- Keep scope small enough to implement, test, Dockerize, and deploy within a 3-hour interview.
+- Focus on engineering quality, testing, automation/workflow, and operational excellence.
+- Use PostgreSQL as the durable persistence layer.
+- Do not use SQLite.
+- Keep the MVP synchronous unless the problem explicitly requires asynchronous processing.
+- Do not implement Kafka, workers, authentication, dashboards, Kubernetes, or CI/CD in the MVP unless explicitly required.
+- Document distributed-system production improvements instead of implementing them immediately.
+- If the problem involves high-volume ingestion, retries, background jobs, monitoring, or event processing, discuss Kafka, workers, retry/DLQ, and observability as production evolution.
+
+Create SPEC.md with the following sections:
+
+# SPEC.md
+
+## 1. Problem Statement
+
+Restate the problem in 3-5 clear sentences.
+
+Explain:
+- what data is ingested or created
+- how the data is processed
+- what users or internal services can query
+- what the service is responsible for
+- what correctness means for this problem
+
+## 2. Clarifying Questions
+
+List the most important questions to ask the interviewer before implementation.
+
+Focus on questions that affect:
+- API behavior
+- data model
+- idempotency
+- processing semantics
+- persistence
+- validation
+- deployment
+- concurrency
+- operational expectations
+
+If a question is not answered, choose a simple assumption for the MVP.
+
+## 3. Assumptions
+
+State explicit MVP assumptions.
+
+Include assumptions about:
+- unique identifiers
+- idempotency key, if applicable
+- supported resource/event/job/metric types, if applicable
+- synchronous vs asynchronous processing
+- PostgreSQL as source of truth
+- deployment target as DigitalOcean App Platform
+- App Platform ingress/load balancing
+- validation boundaries
+- pagination, if list endpoints exist
+- duplicate behavior, if duplicate submissions are possible
+
+## 4. Goals
+
+List the functional goals of the service.
+
+Adapt to the problem, but usually include:
+- ingest or create the core records/resources
+- validate input
+- persist raw records or domain entities in PostgreSQL
+- process records into useful state, result, status, summary, or aggregate
+- handle duplicates or idempotency if applicable
+- expose query endpoints
+- expose status/result/summary endpoints if applicable
+- provide health/readiness endpoints
+- support automated testing
+- support Dockerized local development
+- support deployment to DigitalOcean App Platform
+
+## 5. Non-Goals
+
+List what should not be implemented in the initial time-boxed MVP unless explicitly required.
+
+Usually defer:
+- Kafka implementation
+- worker service
+- retry/DLQ implementation
+- Redis or cache
+- OAuth/RBAC
+- Prometheus/Grafana
+- OpenTelemetry
+- Kubernetes
+- complex CI/CD
+- multi-region deployment
+- advanced admin UI
+- complex migration tooling
+
+State that these are future production improvements.
+
+## 6. API Contract
+
+Define the REST API before implementation.
+
+Always include:
+
+- GET /healthz
+- GET /readyz
+
+Then define the smallest useful problem-specific API.
+
+For each endpoint, define:
+- method and path
+- purpose
+- request body, if applicable
+- success response example
+- error cases
+- HTTP status codes
+
+Keep API paths simple for the interview MVP.
+
+Do not introduce /api/v1 unless there is a clear reason.
+
+## 7. Data Model
+
+Define the core PostgreSQL-backed entities.
+
+For each entity, include:
+- fields
+- high-level types
+- required fields
+- relationships
+- indexes
+- uniqueness constraints
+- status fields, if applicable
+- timestamps such as createdAt and updatedAt
+
+If the service ingests external records or events, define:
+- raw input record table, if useful
+- derived state/result/aggregate table, if useful
+- natural idempotency key such as eventId, requestId, source + externalId, customerId + externalId, resourceId + timestamp, or jobId
+
+Add indexes for common query patterns:
+- id
+- customerId/accountId/resourceId, if applicable
+- status, if applicable
+- type/category, if applicable
+- timestamp/createdAt, if applicable
+- idempotency key, if applicable
+
+## 8. Processing Rules
+
+Define how incoming data is processed.
+
+Include:
+- validation
+- deduplication/idempotency, if applicable
+- persistence of raw records or domain entities
+- transformation or calculation
+- aggregate/status/result updates
+- edge cases
+- failure behavior
+- whether the endpoint mutates state or is a dry-run query
+
+Keep processing synchronous in the MVP unless the prompt explicitly requires async processing.
+
+If async processing is required, keep it minimal and document production-grade queue/worker improvements separately.
+
+## 9. Idempotency / Duplicate Handling
+
+Define duplicate behavior if the problem includes retries, external events, repeated submissions, or client-generated IDs.
+
+Include:
+- idempotency key
+- first request behavior
+- duplicate request behavior
+- expected status codes
+- how duplicate processing is avoided
+- how database uniqueness constraints support correctness
+
+Choose one MVP behavior:
+- return 409 conflict for duplicate submissions, or
+- return 200 with existing result and idempotentReplay=true
+
+Prefer whichever is simpler and easier to explain, but state the trade-off.
+
+If idempotency is not applicable, explicitly say so.
+
+## 10. Transaction and Concurrency Considerations
+
+Define the transaction boundary.
+
+Include:
+- which operations must happen atomically
+- which records should be inserted or updated together
+- what can go wrong under concurrent requests
+- what the MVP handles
+- what production should improve
+
+For the MVP:
+- use a reasonable @Transactional boundary in the service layer
+- do not claim full concurrency safety unless row-level locking, optimistic locking, or atomic update is implemented and tested
+
+If the problem involves quota, inventory allocation, scheduling, reservations, resource limits, or other correctness-critical decisions, explain stronger production concurrency options:
+- row-level locking
+- optimistic locking with @Version
+- atomic update pattern
+- uniqueness constraints
+- serializable transactions, if justified
+
+## 11. Validation Rules
+
+Define:
+- required fields
+- non-empty strings
+- positive numeric values, where applicable
+- valid timestamps, where applicable
+- supported enum values, if applicable
+- payload shape
+- pagination limits, if applicable
+- domain-specific validation
+
+For Java/Spring Boot, validation should use Bean Validation annotations where appropriate:
+
+- @NotBlank
+- @NotNull
+- @Positive
+- @Min
+- @Max
+
+## 12. Error Handling
+
+Use one consistent JSON error shape:
+
+{
+  "error": {
+    "code": "string",
+    "message": "string",
+    "requestId": "string",
+    "details": {}
+  }
+}
+
+Define common error cases and status codes:
+
+- 400 validation_error or bad_request
+- 404 not_found
+- 409 conflict or duplicate submission, when applicable
+- 500 internal_server_error
+- 503 dependency_unavailable
+
+Errors should be safe for clients and should not expose stack traces.
+
+Use @RestControllerAdvice for global exception handling.
+
+## 13. Operational Requirements
+
+Define live-service behavior:
+
+- request ID support using X-Request-ID
+- generate request ID if missing
+- include request ID in response headers
+- include request ID in error bodies, if practical
+- structured or contextual application logs
+- /healthz endpoint for liveness
+- /readyz endpoint for database readiness
+- environment-based configuration
+- safe error responses
+- stateless API design
+- bounded inputs, where appropriate
+
+Suggested environment variables:
+
+- PORT
+- SPRING_DATASOURCE_URL
+- SPRING_DATASOURCE_USERNAME
+- SPRING_DATASOURCE_PASSWORD
+- LOG_LEVEL
+- SPRING_PROFILES_ACTIVE
+
+Optional if easy:
+
+- Spring Boot Actuator
+- /actuator/health
+- /actuator/metrics
+
+Do not let observability block core delivery.
+
+## 14. Testing Strategy
+
+Define unit tests and API/integration tests.
+
+Adapt tests to the actual problem.
+
+Usually include:
+- health endpoint
+- readiness endpoint
+- successful create/ingest path
+- validation failure
+- duplicate/idempotency behavior, if applicable
+- get by id success
+- get by id not found
+- list endpoint, if applicable
+- status/result/summary endpoint, if applicable
+- processing/business rules
+- structured error response
+
+For Java/Spring Boot:
+- use JUnit 5
+- use Spring Boot Test
+- use MockMvc or TestRestTemplate
+- use Testcontainers only if it does not threaten delivery
+- otherwise document docker-compose PostgreSQL for local development
+
+## 15. Automation and Workflow
+
+Define expected project workflow:
+
+- pom.xml or Maven wrapper
+- Dockerfile
+- docker-compose.yml for local PostgreSQL
+- README.md
+- .env.example
+- one-command local run
+- one-command test
+- Docker build/run commands
+- smoke test commands
+
+Suggested commands:
+- ./mvnw test or mvn test
+- ./mvnw spring-boot:run
+- docker compose up -d db
+- docker build -t interview-service .
+- docker run ...
+
+README should include:
+- overview
+- architecture
+- endpoints
+- example requests
+- environment variables
+- local setup
+- tests
+- Docker usage
+- DigitalOcean deployment notes
+- smoke tests
+- trade-offs
+- future improvements
+
+## 16. Deployment Plan
+
+Target DigitalOcean App Platform.
+
+Prefer:
+- GitHub repo connected to App Platform
+- Dockerized deployment or Java buildpack deployment
+- environment variables for configuration
+- DigitalOcean Managed PostgreSQL or App Platform attached PostgreSQL database
+- health check path /healthz
+- configured runtime port via PORT
+
+Include smoke tests for deployed service:
+- GET /healthz
+- GET /readyz
+- one representative POST/create/ingest endpoint
+- one representative GET/query endpoint
+
+Mention that App Platform ingress/load balancing handles external routing for the MVP deployment.
+
+## 17. Scalability Considerations
+
+Explain how the initial version scales:
+
+- stateless API
+- App Platform ingress/load balancing
+- external PostgreSQL
+- indexed queries
+- aggregate/status/result tables, where appropriate
+- bounded request payloads
+- pagination, where appropriate
+- horizontal scaling on App Platform
+
+Also explain future production evolution where relevant:
+- DigitalOcean Managed Kafka for high-volume ingestion
+- App Platform worker consumers
+- retry policy
+- dead-letter topic
+- transactional outbox if publishing events after DB commit
+- Redis/Valkey for cache or rate limiting
+- metrics and tracing
+- authentication/authorization
+- database migrations with Flyway or Liquibase
+- CI/CD pipeline
+
+## 18. Trade-offs
+
+Explain important trade-offs.
+
+Include:
+- why processing is synchronous in the MVP
+- why Kafka/worker is deferred from the initial implementation unless required
+- why PostgreSQL is the source of truth
+- why derived state, aggregate tables, or status tables may be useful
+- why transaction-aware design matters for correctness-critical workflows
+- why the design focuses on a production-candidate slice rather than a half-finished distributed system
+- what would be added next in a real production environment
+
+## 19. Future Production Improvements
+
+List future improvements separately from the initial implementation.
+
+Include only if relevant:
+- Managed Kafka async ingestion path
+- App Platform worker service
+- retry and dead-letter handling
+- transactional outbox
+- stronger concurrency control
+- rate limiting
+- caching
+- authentication/authorization
+- audit logs
+- metrics
+- tracing
+- schema migrations
+- CI/CD
+- load/performance testing
+
+Important constraints:
+
+- Do not write implementation code yet.
+- Do not create files other than SPEC.md yet.
+- Keep the spec practical and implementable within a timed interview.
+- Make assumptions explicit.
+- Keep the initial implementation scope focused.
+- Avoid unnecessary complexity.
+- Use Java/Spring Boot terminology where relevant.
+- The spec should be detailed enough that implementation can follow it directly.
+
+PROBLEM STATEMENT:
+
+[PASTE INTERVIEW PROBLEM HERE]
+
+If the problem statement is vague, infer the smallest reasonable Java Spring Boot REST API service that handles data ingestion and processing.
+
+Use the following interpretation framework:
+
+1. Identify the ingested data:
+   - What records, events, resources, jobs, metrics, or updates are being submitted?
+   - What fields uniquely identify each record?
+   - Is there a natural idempotency key?
+
+2. Identify the processing:
+   - Should the service validate, transform, aggregate, summarize, enforce limits, calculate status, schedule work, or trigger follow-up processing?
+   - Should processing be synchronous in the MVP?
+   - Does the caller need an immediate result, or can processing be eventual?
+
+3. Identify the queries:
+   - What should users or internal services be able to retrieve?
+   - Should there be get-by-id, list, status, summary, or result endpoints?
+
+4. Identify the persistence model:
+   - What raw records should be stored?
+   - What processed state, status, result, or aggregate should be stored?
+   - What uniqueness constraints and indexes are needed?
+
+5. Identify operational requirements:
+   - health check
+   - readiness check
+   - validation
+   - consistent error handling
+   - request ID
+   - logs
+   - Docker
+   - PostgreSQL
+   - DigitalOcean App Platform deployment
+
+For the MVP, choose the smallest useful API contract that demonstrates:
+- clean Java/Spring Boot organization
+- PostgreSQL persistence
+- validation
+- idempotency or duplicate handling, if applicable
+- meaningful error handling
+- tests
+- Docker workflow
+- DigitalOcean App Platform deployment readiness
+- operational thinking
+
+Do not implement distributed-system components unless the prompt explicitly requires them. Document Kafka, workers, retry/DLQ, observability dashboards, auth, rate limiting, and advanced scaling as future production improvements.
