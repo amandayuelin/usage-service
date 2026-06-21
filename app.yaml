@@ -1,8 +1,11 @@
 name: usage-events-app
 services:
   - name: web
-    image: registry.digitalocean.com/<registry>/usage-service:latest
-    run_command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    github:
+      repo: amandayuelin/usage-service
+      branch: main
+      deploy_on_push: true
+    run_command: sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
     envs:
       - key: DATABASE_URL
         value: sqlite:///./data.db

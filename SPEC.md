@@ -1,182 +1,205 @@
-# SPEC: Usage Events Ingestion & Summaries Service
+# SPEC: Quota & Usage Service
 
-**Restatement of requirements**
+This document captures the spec, API contract, data model, validation, transaction safety, tests, deployment plan, and trade-offs for a small REST API that manages per-customer quotas and enforces usage limits. The implementation will be a minimal, production-minded FastAPI service using PostgreSQL (configured via `DATABASE_URL`), with tests, Dockerfile, docker-compose, and a deployment path to DigitalOcean App Platform.
 
-Build a small REST API service that ingests cloud resource usage events, prevents duplicate ingestion, stores events, and exposes query endpoints and usage summaries per customer. Deliverables: working REST API, automated tests, README, Dockerfile, and service deployed to DigitalOcean (or documented deployment attempt) within a 3-hour interview window.
+1. Concise restatement of requirements
+-------------------------------------
+- Provide a REST API to: define per-customer quotas for resource types, record usage events, check whether a requested usage increase is allowed, and query current quota and usage status.
+- Prevent duplicate usage ingestion when producers retry events.
+- Persist to PostgreSQL (use `DATABASE_URL`).
+- Deliver: working API, automated tests, README, Dockerfile, docker-compose (Postgres), and deployment to DigitalOcean (or a documented attempt).
 
-**Assumptions (to confirm with interviewer)**
-- Each event includes a globally-unique `event_id` supplied by producers and is the deduplication key.
-- Summaries are computed by customer over configurable time windows (day/week/month). Minimal implement: daily summaries.
-- No strict multi-tenant isolation beyond `customer_id` filter.
-- Small scale: SQLite for dev/test; instructions to replace with Postgres for production.
-- Authentication is out of scope unless interviewer asks for it.
+2. Clarifying questions to ask the interviewer
+---------------------------------------------
+- Are resource types a closed enum (e.g., `droplet`, `block_storage`, `bandwidth`, `managed_db`, `load_balancer`) or freeform strings?
+- Are quotas simple integer limits (counts) or do some resources use units like bytes or vCPU-hours that need different semantics?
+- Do usage events include releases (negative deltas)? If so, is `current` allowed to go down to 0 only (no negatives)?
+- Should quotas support time windows (monthly limits) or only absolute counters?
+- Must requests be authenticated? (Assume no auth for the interview unless requested.)
+- Is strict consistency required for concurrent allocation bursts? (We will implement transactional safety.)
 
-**Clarifying questions to ask the interviewer**
-1. Is `event_id` guaranteed unique across all producers, and should it be the dedupe key? If not, what dedupe strategy?  
-2. Which summary windows are required (daily, weekly, monthly)? Default to daily.  
-3. What fields must each event include; are there required resource types or a schema we must follow?  
-4. Expected query patterns and cardinality (to choose indexes/storage): real-time queries, or offline batch queries?  
-5. Any authentication, rate-limiting, or retention/archival policies required?  
-6. Preferred DB for production (Postgres recommended) and whether migrations are expected.
+3. Explicit assumptions (if interviewer does not clarify)
+-------------------------------------------------------
+- Resource types will be a closed enum: `droplet`, `block_storage`, `bandwidth`, `managed_db`, `load_balancer`.
+- Quotas are integer limits. Units for some resource types are implied (e.g., bandwidth in MB) and documented.
+- Usage events are non-negative increments for the MVP; releases (decrements) are out of scope but noted as follow-up.
+- If no quota exists for a customer/resource, the service denies new allocations (fail-closed).
+- Clients provide a unique `event_id` for idempotency.
+- No authentication in MVP.
+- Use SQLAlchemy `create_all` for schema creation in the interview; production should use Alembic.
 
-**Minimal production-minded API contract (OpenAPI-esque)**
+4. Scope (Must / Should / Nice-to-have)
+---------------------------------------
+- Must-have
+  - FastAPI app with endpoints: create/update quota, record usage (idempotent), check, get status, health.
+  - PostgreSQL persistence via `DATABASE_URL` and docker-compose for local development.
+  - Tests: health, quota creation, usage ingestion, idempotency, quota enforcement, not-found.
+  - Dockerfile and `docker-compose.yml` with Postgres service.
+  - README with run/test/deploy instructions.
+- Should-have
+  - Prometheus metrics endpoint, structured JSON logging, request `trace_id` support.
+- Nice-to-have
+  - Time-windowed quotas (monthly), releases (decrement), Alembic migrations, RBAC/auth.
 
-- Health
-  - GET /health
-    - 200: {"status":"ok"}
+5. Minimal but production-minded API contract
+--------------------------------------------
+Common: JSON only, `Content-Type: application/json`. Use `trace_id`/`X-Request-ID` headers for correlation.
 
-- Ingest event
-  - POST /events
-  - Description: Accept a single usage event (idempotent by `event_id`).
-  - Request JSON:
-    {
-      "event_id": "string",            # unique id for dedupe
-      "customer_id": "string",         # customer identifier
-      "resource_id": "string",         # resource identifier
-      "resource_type": "string",       # enum: e.g., vm, db, storage
-      "usage": number,                   # usage amount (float)
-      "usage_unit": "string",          # e.g., vcpu-hour, GB-month
-      "timestamp": "ISO-8601 string",  # when usage occurred
-      "metadata": { ... }                # optional
-    }
-  - Responses:
-    - 201 Created: {"status":"created","event_id":"..."}
-    - 200 OK: {"status":"duplicate","event_id":"..."} (if already ingested)
-    - 400 Bad Request: validation errors
+- GET /healthz
+  - 200 OK -> {"status":"ok"}
 
-- Query events
-  - GET /events
-  - Query params: `customer_id` (required), `start`, `end` (ISO dates), `limit`, `offset`
-  - 200: {"events": [...], "limit": n, "offset": m}
+- POST /quotas
+  - Request body: { "customer_id": "string", "resource_type": "droplet", "limit": integer }
+  - 201 Created -> created quota object
+  - 400 validation errors
 
-- Usage summaries
-  - GET /summaries
-  - Query params: `customer_id` (required), `start`, `end`, `granularity` (day|week|month) (default=day)
-  - 200: {"customer_id":"...","granularity":"day","buckets":[{"start":"...","end":"...","usage_total":n}]}
+- GET /quotas/{customer_id}/{resource_type}
+  - 200 -> { "customer_id","resource_type","limit","created_at","updated_at" }
+  - 404 if not found
 
-Notes: All responses are JSON. Use proper HTTP codes. Include `X-Request-ID` optional header passthrough for tracing.
+- POST /usage
+  - Request body: { "event_id": "string", "customer_id": "string", "resource_type": "droplet", "delta": integer }
+  - Behavior: idempotent ingestion. If `event_id` already processed, return 200 with prior result. If new, atomically check quota and record.
+  - 201 Created -> { "event_id","customer_id","resource_type","delta","allowed": true, "new_total": int }
+  - 409 Conflict -> when request would exceed quota (no record created)
 
-**Data model proposal**
+- POST /check
+  - Request body: { "customer_id","resource_type","delta" }
+  - 200 -> { "allowed": true/false, "current": int, "limit": int, "would_be": int }
 
-- Event
-  - id: integer (internal PK, auto)
-  - event_id: string (unique, indexed)
-  - customer_id: string (indexed)
-  - resource_id: string
-  - resource_type: string
-  - usage: decimal/float
-  - usage_unit: string
-  - timestamp: timestamp (indexed)
-  - metadata: JSON (nullable)
-  - ingested_at: timestamp
+- GET /usage/{customer_id}/{resource_type}
+  - 200 -> { "customer_id","resource_type","current": int, "limit": int|null }
 
-- (Optional) CustomerSummary (computed on the fly or materialized)
-  - customer_id, start_ts, end_ts, usage_total
+6. PostgreSQL data model proposal
+----------------------------------
+- Table `quotas`
+  - `id` UUID PK
+  - `customer_id` TEXT NOT NULL
+  - `resource_type` TEXT NOT NULL
+  - `limit` BIGINT NOT NULL CHECK (limit >= 0)
+  - `created_at`, `updated_at` timestamptz
+  - UNIQUE(customer_id, resource_type)
+  - Index on (customer_id, resource_type)
 
-Persistence: SQLite for dev/test with SQLAlchemy; for production swap to Postgres and add migrations.
+- Table `usage_counters`
+  - `id` UUID PK
+  - `customer_id` TEXT NOT NULL
+  - `resource_type` TEXT NOT NULL
+  - `current` BIGINT NOT NULL DEFAULT 0
+  - `updated_at` timestamptz
+  - UNIQUE(customer_id, resource_type)
 
-**Deduplication strategy**
-- Primary approach: require `event_id`; insert with unique constraint on `event_id`. On conflict, treat as duplicate and return 200+duplicate.
-- If producers don't supply `event_id`, fallback: hash of (customer_id, resource_id, resource_type, usage, timestamp) with a small TTL window — confirm with interviewer.
+- Table `usage_events`
+  - `id` UUID PK
+  - `event_id` TEXT NOT NULL UNIQUE
+  - `customer_id` TEXT NOT NULL
+  - `resource_type` TEXT NOT NULL
+  - `delta` BIGINT NOT NULL
+  - `recorded_at` timestamptz
+  - Index on (customer_id, resource_type)
 
-**Validation rules**
-- `event_id`: required, non-empty string, max length 255
-- `customer_id`: required, non-empty string
-- `resource_id`: required, non-empty string
-- `resource_type`: required, non-empty string (allow free-form, but validate non-empty)
-- `usage`: required, numeric >= 0
-- `usage_unit`: required, non-empty string
-- `timestamp`: required, valid ISO-8601 datetime (UTC recommended). Accept offsets.
-- `metadata`: optional JSON object
+Rationale: `usage_events` provides durable deduplication and audit trail; `usage_counters` stores current totals for fast reads and safe transactional updates.
 
-**Error response format**
-- All errors follow this JSON shape:
-  {
-    "error": {
-      "code": "string_code",      # e.g., "validation_error", "duplicate_event"
-      "message": "Human readable message",
-      "details": { ... }           # optional map of field->error
-    },
-    "request_id": "..."           # echo or generated for tracing (optional)
-  }
+7. Validation rules
+-------------------
+- `customer_id`: non-empty string, max 255.
+- `resource_type`: must be one of allowed enum values.
+- `limit`: integer >= 0.
+- `delta`: integer > 0 (MVP). If supporting releases, allow negative but ensure `current + delta >= 0`.
+- `event_id`: required, non-empty, max 255.
 
-HTTP status codes map to `error.code` (400->validation_error, 409->conflict if needed, 500->internal_error).
+Validation performed with Pydantic schemas; reject invalid requests with 400/422.
 
-**Observability**
-- Emit `X-Request-ID` if provided, otherwise generate and include in responses.
-- Logs structure: JSON logs with at least `ts`, `level`, `msg`, `request_id`, `customer_id` when present.
-- Basic metrics to expose via `/metrics` (Prometheus) if time permits; otherwise provide guidance in README.
+8. Duplicate / idempotency behavior
+----------------------------------
+- Clients MUST supply `event_id` for usage ingestion.
+- `usage_events.event_id` has a UNIQUE constraint.
+- On POST /usage:
+  - Begin DB transaction.
+  - Try to insert into `usage_events` with provided `event_id`.
+    - If conflict on `event_id` (duplicate), fetch and return previous result (200 OK) — do not reapply delta.
+    - If insert succeeds, perform transactional quota check and update `usage_counters`, then commit.
+  - Response includes `already_processed: true` for duplicates (or returns prior result payload).
 
-**Test plan**
-- Unit tests (pytest):
-  - Validation: missing/invalid fields produce 400 with details
-  - Deduplication: POST duplicate `event_id` returns duplicate response and does not create second row
-  - Persistence: POST creates event; GET /events returns it
-  - Summaries: ingest sample events and assert `GET /summaries` totals per bucket
-- Integration tests:
-  - Start app with test DB (SQLite in-memory or temp file) and exercise end-to-end flow
-- CI: run `pytest` in container; tests must be fast (< 1-2 min)
+9. Transaction & concurrency considerations for quota enforcement
+---------------------------------------------------------------
+- One DB transaction per record-and-check operation:
+  1. Begin transaction.
+ 2. SELECT quota row for (customer_id, resource_type).
+ 3. Upsert or SELECT FOR UPDATE the `usage_counters` row.
+ 4. Compute `new_total = current + delta`.
+ 5. If `new_total > quota.limit`, rollback and return 409.
+ 6. Insert `usage_events` (if not already inserted) and UPDATE `usage_counters` SET current = new_total.
+ 7. Commit.
 
-**Implementation plan & 3-hour timebox (stop coding and start deployment approx at ~2hr mark)**
+- Use `SELECT ... FOR UPDATE` on `usage_counters` to serialize concurrent writers for the same customer/resource. Alternatively use `UPDATE ... RETURNING` with checks.
+- Keep transactions short. Default isolation (READ COMMITTED) is acceptable with row-level locking.
 
-Time allocation (total 3 hours):
-- 00:00–00:15 (15m): Finalize spec & repo scaffolding (we're here). Confirm assumptions/questions.
-- 00:15–01:30 (75m): Implement core service (FastAPI): models, `POST /events`, dedupe, `GET /events`, `GET /summaries` (daily), health endpoint. Minimal logging and env config.
-- 01:30–02:00 (30m): Write tests covering validation, dedupe, summary logic. Run and fix failures.
-- 02:00 (stop coding)–02:05 (5m): Prepare Dockerfile and build instructions; freeze code.
-- 02:05–03:00 (55m): Deployment to DigitalOcean (or document attempt). If deployment blocked, document step-by-step and include artifacts (Dockerfile, app spec).
+10. Error response format
+-------------------------
+JSON error envelope used for all failures. Example:
 
-Stop-coding trigger: when core endpoints are passing tests locally (unit/integration), and Docker image builds successfully — stop coding and begin deployment.
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "Quota exceeded for resource_type",
+    "details": { "customer_id": "...", "resource_type": "...", "limit": 10, "current": 9, "attempted_delta": 2 }
+  },
+  "trace_id": "uuid"
+}
 
-**DigitalOcean deployment plan (complete within 55 minutes after coding)**
-Prerequisites (ask interviewer):
-- DigitalOcean account and API token with App Platform or registry permissions, or provide credentials.
-- `doctl` installed locally (or use web UI). Otherwise use Docker Hub or GitHub Container Registry.
+HTTP mapping: 400 validation, 404 not found, 409 quota_exceeded/conflict, 422 unprocessable, 500 internal.
 
-Simple App Platform flow (recommended):
-1. Create Docker image locally: `docker build -t registry.digitalocean.com/<registry>/usage-service:latest .`
-2. Push to DO Container Registry (or Docker Hub) after `doctl registry create` and `docker login` to DO registry.
-3. Create `app.yaml` minimal spec for DigitalOcean App Platform that uses image from registry, exposes port 8000, sets environment variables (e.g., `DATABASE_URL`, `ENV=production`).
-4. Use `doctl apps create --spec app.yaml` to deploy, or create App via DigitalOcean web UI pointing to container image.
-5. Run migrations (for SQLite this is a no-op; for Postgres run migration container command or include startup script to run migrations.)
-6. Verify `/health` and sample endpoints.
+11. Test plan
+-------------
+- Unit tests (pytest): validate schemas and calculation helpers.
+- Integration tests (against docker-compose Postgres):
+  - `test_health.py` — GET /healthz returns 200.
+  - `test_quota_create_and_get` — create quota, GET returns expected values.
+  - `test_usage_ingest_success` — POST /usage with enough quota creates event and updates counter.
+  - `test_idempotency` — POST same `event_id` twice: second returns prior result and not double-count.
+  - `test_quota_enforcement` — POST exceeding delta fails and does not create event.
+  - Concurrency test: parallel clients attempting to consume remaining quota — verify only allowed subset succeed.
 
-Alternative (Droplet + Docker):
-- Provision a small Droplet, SSH, install Docker, run the image with env vars and optional `docker-compose`.
+- Test harness: pytest fixtures to spin up/tear down schema; use docker-compose Postgres for integration tests.
 
-Common blockers & mitigations
-- No DO account or no token: push image to Docker Hub and show `docker run` commands and App Platform `app.yaml` — counts as documented deployment attempt.
-- Registry permission issues: provide full `Dockerfile`, `app.yaml`, and step-by-step commands to run manually.
+12. Observability & configuration
+---------------------------------
+- Environment variables (Pydantic Settings): `DATABASE_URL`, `PORT`, `LOG_LEVEL`, `METRICS_ENABLED`.
+- Logging: structured JSON; include `trace_id` and request context.
+- Metrics: expose Prometheus `/metrics` (counters for requests, quota_denials, ingestion_success, idempotent_hits).
+- Health: `/healthz` will check DB connectivity.
 
-**Config via environment variables**
-- `DATABASE_URL` (default sqlite:///./data.db)
-- `PORT` (default 8000)
-- `LOG_LEVEL` (default info)
-- `DOCKER_ENV` or `ENV` (development/production)
+13. Implementation plan (when to stop coding and start deployment)
+------------------------------------------------------------------
+- Phase A (design) — this doc.
+- Phase B (implementation) — scaffold FastAPI, config, DB wiring, models, endpoints, tests. Stop coding when all tests pass locally and Docker image builds.
+- Phase C (deployment) — prepare Dockerfile, docker-compose, deploy to DigitalOcean App Platform and validate.
 
-**README minimal contents (to include)**
-- Project description & API summary
-- Quickstart (local): python venv, install deps, run uvicorn, example curl commands
-- Tests: `pytest` instructions
-- Docker build and run example
-- Deployment notes for DigitalOcean (app.yaml example and `doctl` commands)
+Stop-coding criteria: all core tests pass locally, app builds in Docker, and local smoke tests succeed.
 
-**Trade-offs and follow-up improvements**
-- Use SQLite for speed and simplicity in interview; production should use Postgres with migrations and connection pooling.
-- Dedup by `event_id` assumes producers supply stable IDs; if not possible, need idempotency keys or a time-windowed dedupe layer (more complex).
-- Summaries are computed on-the-fly which is simple but may be slow at scale — consider periodic batch aggregation (worker + materialized tables) for high-volume workloads.
-- Add authentication, authorization, rate-limiting, and quotas for multi-tenant safety.
-- Add observability: Prometheus metrics, distributed tracing (Jaeger), structured logs to a central sink.
-- Add schema migrations and CI/CD pipeline to automate tests and deployments.
+14. DigitalOcean App Platform deployment plan
+--------------------------------------------
+- Pre-req: Git repo and DO account. Create a managed PostgreSQL cluster and capture `DATABASE_URL`.
+- App Platform steps:
+  1. Build Docker image and push to DO Container Registry or use App Platform build from repo.
+  2. Configure App with `DATABASE_URL`, `PORT`, health check `/healthz`.
+  3. Ensure DB tables created at startup (use `create_all` for interview or run a migration step).
+  4. Deploy and run smoke tests (create quota, ingest usage, check `/healthz`).
 
-**Files to create next (if you confirm)**
-- `SPEC.md` (this file)
-- `README.md` (scaffold)
-- `app/` FastAPI app scaffold: `main.py`, `models.py`, `schemas.py`, `db.py`, `config.py`
-- `tests/` pytest cases
-- `Dockerfile`, `.dockerignore`
-- `app.yaml` (DigitalOcean App spec)
+- If DO access is unavailable, provide an `app.yaml` and `doctl` commands plus a Docker image that the interviewer could deploy.
 
----
+15. Trade-offs and follow-up improvements
+---------------------------------------
+- Chosen for speed: `create_all` vs Alembic. Follow-up: add migrations.
+- Strong consistency via row locks limits per-customer write throughput; follow-up: optimistic concurrency or sharded counters for scale.
+- Idempotency via `event_id` is simple; follow-up: time-windowed dedupe or dedupe service for producers that can't provide stable ids.
+- Add auth, RBAC, retention policies, and monitoring integrations for production readiness.
 
-Please review and confirm assumptions or answer the clarifying questions you want to lock in. After you confirm, I will scaffold the project files (keeping scope minimal) and implement the core endpoints until the 2-hour mark, then start deployment steps as planned.
+Deliverables to create when coding:
+- README with run/test/deploy steps
+- `Dockerfile` and `docker-compose.yml` with a Postgres service
+- FastAPI app under `app/` with `main.py`, `models.py`, `schemas.py`, `db.py`, `config.py`
+- Tests under `tests/` and a `pytest.ini`
+
+Next step: confirm the assumptions above (resource enum, units, releases allowed). Once you confirm, I'll scaffold the project and implement the minimal feature set.
