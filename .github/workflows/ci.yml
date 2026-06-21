@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: |
+          pytest -q
+        env:
+          DATABASE_URL: sqlite:///./test.db
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Prepare registry info
+        id: registry
+        run: |
+          if [ -n "${{ secrets.DOCR_REGISTRY }}" ]; then
+            echo "REGISTRY=${{ secrets.DOCR_REGISTRY }}" >> $GITHUB_ENV
+            echo "IMAGE_NAME=${{ secrets.DOCR_REGISTRY }}/usage-service:latest" >> $GITHUB_ENV
+          else
+            echo "REGISTRY=ghcr.io" >> $GITHUB_ENV
+            echo "IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/usage-service:latest" >> $GITHUB_ENV
+          fi
+
+      - name: Log in to registry (DigitalOcean)
+        if: ${{ secrets.DOCR_REGISTRY != '' }}
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.DOCR_REGISTRY }}
+          username: ${{ secrets.DOCR_USERNAME }}
+          password: ${{ secrets.DOCR_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ secrets.DOCR_REGISTRY == '' }}
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_NAME }}
+
+      - name: Install doctl (for optional deploy)
+        if: ${{ secrets.DO_API_TOKEN && secrets.DO_APP_ID }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Deploy to DigitalOcean App Platform
+        if: ${{ secrets.DO_API_TOKEN && secrets.DO_APP_ID }}
+        run: |
+          doctl apps update ${{ secrets.DO_APP_ID }} --spec app.yaml
