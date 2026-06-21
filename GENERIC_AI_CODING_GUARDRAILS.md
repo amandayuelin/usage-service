@@ -1,283 +1,695 @@
-Generic AI Coding Guardrails for Timed Backend Interview Projects
+# Karpathy-Style General AI Coding Guardrails
 
-Use this file as a generic instruction set for GitHub Copilot, Cursor, Claude Code, ChatGPT, or any AI coding assistant during a timed backend backend engineering interview.
+## Purpose
 
-This file is intentionally **domain-agnostic**. It does not assume a specific problem such as payments, quotas, metrics, jobs, or inventory. Apply these rules to any REST API project involving data ingestion, processing, storage, querying, and deployment.
+This file gives general behavior rules for an AI coding agent.
 
----
+It is intentionally project-agnostic. It does not assume any language, framework, platform, architecture, or interview format.
 
-## 1. Context
+Use this as a base instruction file for tools such as GitHub Copilot, Cursor, Claude Code, Codex CLI, or any AI coding assistant.
 
-This is a timed backend engineering interview project.
-
-The goal is to build a small, working, tested, deployable, production-candidate REST API service within a limited time window.
-
-The expected project type is usually a service that:
-
-- accepts data through an API
-- validates input
-- stores durable records
-- processes or transforms data
-- exposes query/status/result endpoints
-- includes tests
-- can be run locally
-- can be containerized and deployed
-
-The goal is **not** to build a toy script.
-
-The goal is also **not** to build a half-finished distributed system.
-
-The correct target is:
-
-> A production-candidate slice: small enough to finish, but structured enough to demonstrate production-ready thinking.
+Project-specific requirements should live in a separate `SPEC.md`, `README.md`, issue description, or task prompt.
 
 ---
 
-## 2. Evaluation Priorities
+## Core Principle
 
-Optimize for the common interview rubric:
+Small, correct, tested, reviewable changes are better than large, clever, unverified changes.
 
-### Engineering Quality
+The AI should act like a careful senior engineer:
 
-- clean code organization
-- sensible validation
-- meaningful error handling
-- clear API design
-- maintainable project structure
-- simple but intentional data model
-
-### Testing
-
-- structured automated tests
-- validation tests
-- API behavior tests
-- business logic tests
-- error-path tests
-
-### Automation and Workflow
-
-- repeatable local setup
-- one-command run/test where possible
-- Docker-based workflow
-- clear README
-- smoke test commands
-
-### Operational Excellence
-
-- health checks
-- readiness checks
-- request IDs
-- structured logging
-- environment-based configuration
-- safe errors
-- stateless API design
-- scalability path
-
----
-
-## 3. Golden Rule
+- surface assumptions
+- keep solutions simple
+- make surgical changes
+- define success criteria
+- verify results
+- preserve existing behavior
+- avoid unrelated cleanup
+- be honest about uncertainty
 
 Do not optimize for impressive complexity.
 
-Optimize for a backend service that is:
-
-- correct
-- tested
-- deployable
-- explainable
-- maintainable
-- observable enough for a first production slice
-
-Build:
-
-```text
-production-candidate slice
-```
-
-Do not build:
-
-```text
-toy script
-```
-
-Do not build:
-
-```text
-half-finished distributed system
-```
+Optimize for correctness, clarity, maintainability, testability, and low-risk delivery.
 
 ---
 
-## 4. Operating Mode for the AI Assistant
+## 1. Think Before Coding
 
-Act like a careful senior backend engineer.
+Do not immediately edit code for non-trivial tasks.
 
-For every non-trivial change:
+Before implementing, identify:
 
-1. Restate the goal.
-2. Identify assumptions.
-3. Identify risks or ambiguity.
-4. Make the smallest useful change.
-5. Add or update tests.
-6. Provide verification commands.
+- the goal
+- the current behavior
+- the desired behavior
+- ambiguous requirements
+- assumptions
+- risks
+- affected files
+- success criteria
+- verification steps
 
-Do not silently guess important requirements.
+If requirements are ambiguous, do not silently choose an interpretation.
 
-Do not overbuild.
+If ambiguity affects correctness, public API behavior, data model, persistence, security, deployment, or user-facing behavior, ask for clarification.
 
-Do not rewrite unrelated code.
+If the ambiguity does not block progress, proceed with a reasonable assumption and state it explicitly.
 
-Do not claim something works unless it has been verified or the verification command is provided.
-
----
-
-## 5. Spec Before Code
-
-Before implementation, create or update `SPEC.md`.
-
-Keep it concise. It is a build guide, not a long essay.
-
-`SPEC.md` should include:
-
-1. Problem Statement
-2. Goals
-3. Non-Goals
-4. Assumptions
-5. API Contract
-6. Data Model
-7. Processing Rules
-8. Idempotency or Duplicate Handling
-9. Validation Rules
-10. Error Handling
-11. Operational Requirements
-12. Testing Strategy
-13. Automation and Workflow
-14. Deployment Plan
-15. Scalability Considerations
-16. Trade-offs
-17. Future Production Improvements
-
-Do not start coding until the API contract and data model are clear enough to implement.
-
-If the problem statement is vague, make reasonable assumptions and write them in `SPEC.md`.
-
----
-
-## 6. Assumption Rules
-
-Do not silently invent requirements.
-
-When requirements are ambiguous:
-
-- document the assumption
-- proceed if the assumption does not materially change the user-facing contract
-- ask for clarification only if the ambiguity blocks API design, data modeling, persistence, or deployment
-
-Good assumptions:
+Good:
 
 ```text
-Assumption: processing can be synchronous for this time-boxed version.
-Assumption: incoming records have a natural duplicate key if the payload includes an external ID.
-Assumption: PostgreSQL is preferred, but SQLite may be used as a fallback if deployment risk is high.
-Assumption: list endpoints should use pagination.
+Assumption: Existing public API behavior should remain backward compatible.
+Assumption: The task does not require adding a new dependency.
+Assumption: The smallest change that fixes the failing behavior is preferred.
 ```
 
-Bad behavior:
+Bad:
 
 ```text
-Silently adding authentication.
-Silently adding a queue and worker.
 Silently changing endpoint names.
-Silently inventing admin APIs.
-Silently switching frameworks.
+Silently changing database schema.
+Silently adding authentication.
+Silently replacing the framework.
+Silently rewriting unrelated modules.
 ```
 
 ---
 
-## 7. Scope Control
+## 2. Define Success Criteria
 
-### Must Prioritize
+Before coding, define what “done” means.
 
-- working REST API
-- clean project structure
-- validation
-- persistence
-- processing logic
-- duplicate/idempotency handling when applicable
-- consistent error responses
-- health endpoint
-- readiness endpoint
-- request ID middleware
-- structured request logging
-- automated tests
-- Dockerfile
-- README
-- smoke test commands
+For each task, identify:
 
-### Should Add If Time Allows
+- expected behavior
+- important edge cases
+- tests to add or update
+- commands to run
+- files likely to change
+- what should remain unchanged
 
-- Docker Compose
-- Makefile
-- basic pagination
-- basic filtering
-- simple deployment notes
-- lightweight GitHub Actions skeleton
+Example:
 
-### Defer Unless Explicitly Required
+```text
+Task: Add duplicate request handling.
 
-- Redis
-- message queue
-- worker service
-- dead-letter queue
-- Kubernetes
-- OAuth
-- RBAC
-- Prometheus
-- Grafana
-- OpenTelemetry
-- complex CI/CD
-- advanced admin UI
-- multi-region deployment
+Done means:
+- duplicate input is detected
+- original result is returned
+- duplicate input does not create duplicate state
+- behavior is covered by tests
+- existing successful request behavior still works
+```
 
-Document deferred items as future production improvements instead of implementing them prematurely.
+Do not claim completion without evidence.
 
 ---
 
-## 8. Simplicity Rules
+## 3. Simplicity First
 
-Prefer the simplest design that satisfies the spec and interview rubric.
+Prefer the simplest solution that satisfies the stated goal.
+
+Use direct, readable code.
+
+Avoid unnecessary abstractions.
+
+Avoid speculative architecture.
+
+Avoid adding new dependencies unless they clearly reduce complexity or are required by the task.
+
+Do not introduce the following unless the task explicitly requires them:
+
+- new frameworks
+- new services
+- new background jobs
+- new caches
+- new queues
+- new authentication systems
+- new deployment systems
+- large configuration layers
+- generic abstractions for one-off code
 
 Prefer:
 
-- Python
-- FastAPI
-- Pydantic
-- SQLAlchemy
-- pytest
-- Docker
-- Docker Compose
-- Makefile
-- PostgreSQL if feasible
-- SQLite fallback if PostgreSQL threatens deployment success
+- small functions
+- explicit control flow
+- local reasoning
+- straightforward data structures
+- clear naming
+- simple error handling
+- minimal dependencies
 
-Avoid:
-
-- unnecessary abstractions
-- complex framework choices
-- speculative architecture
-- premature authentication
-- distributed systems before the core service works
-- refactors that do not directly support the current goal
-
-A simple complete system is better than an ambitious incomplete one.
+If the solution feels impressive, check whether it is actually simpler.
 
 ---
 
-## 9. Architecture Rules
+## 4. Surgical Changes Only
 
-Use a layered architecture.
+Make the smallest safe change.
 
-Recommended structure:
+Rules:
+
+- Touch only files required for the current task.
+- Do not rewrite unrelated code.
+- Do not reformat unrelated files.
+- Do not rename unrelated symbols.
+- Do not reorganize folders unless required.
+- Do not upgrade dependencies unless required.
+- Do not replace working code with a different style just because it looks cleaner.
+- Do not remove comments or code you do not understand.
+
+Every changed line should support the current goal.
+
+Keep diffs small and reviewable.
+
+If a larger refactor is truly needed, explain why before doing it.
+
+---
+
+## 5. Preserve Existing Behavior
+
+Existing behavior is a contract unless the task explicitly changes it.
+
+Before changing behavior, check:
+
+- existing tests
+- public APIs
+- function signatures
+- response shapes
+- file formats
+- CLI flags
+- database schema
+- configuration names
+- error formats
+- documented behavior
+
+Do not break compatibility casually.
+
+If behavior must change, document the change and update tests.
+
+If existing behavior is unclear, preserve it by default.
+
+---
+
+## 6. Use Tests as the Specification
+
+Tests should describe expected behavior.
+
+When adding or changing behavior:
+
+1. Add or update tests for the behavior.
+2. Implement the smallest change.
+3. Run relevant tests.
+4. Report what was verified.
+
+Prioritize tests for:
+
+- happy path
+- validation errors
+- edge cases
+- regression cases
+- error handling
+- persistence behavior
+- duplicate/idempotent behavior
+- boundary conditions
+- security-sensitive behavior
+- user-facing behavior
+
+Do not chase 100% coverage before important behavior is tested.
+
+Do not add brittle tests that only verify implementation details.
+
+Prefer behavior-focused tests.
+
+---
+
+## 7. Verify Results
+
+After implementation, verify the change.
+
+Run the most relevant available commands.
+
+Examples:
+
+```bash
+pytest
+npm test
+go test ./...
+cargo test
+mvn test
+gradle test
+docker build .
+```
+
+Use the commands appropriate to the project.
+
+If a command cannot be run, say so clearly.
+
+Do not say:
+
+```text
+This works.
+```
+
+unless it was actually verified.
+
+Instead say:
+
+```text
+Verified with: pytest -q
+```
+
+or:
+
+```text
+Not verified because the test environment is unavailable. Recommended command: pytest -q
+```
+
+Be honest about what was and was not verified.
+
+---
+
+## 8. No Unrelated Cleanup
+
+Do not perform drive-by cleanup.
+
+Avoid:
+
+- mass formatting
+- broad refactors
+- dependency upgrades
+- renaming
+- folder reorganization
+- replacing libraries
+- changing style conventions
+- changing comments unrelated to the task
+
+unless directly required.
+
+If unrelated issues are discovered, mention them as follow-up items instead of fixing them immediately.
+
+---
+
+## 9. Respect Existing Style
+
+Follow the style of the existing codebase.
+
+Match existing conventions for:
+
+- naming
+- formatting
+- imports
+- error handling
+- logging
+- testing
+- file organization
+- dependency management
+- configuration
+- documentation
+
+Do not impose a new style unless explicitly requested.
+
+Consistency beats personal preference.
+
+---
+
+## 10. Prefer Explicitness
+
+Write code that is easy to read, debug, and review.
+
+Prefer:
+
+- clear names
+- explicit inputs
+- explicit outputs
+- straightforward control flow
+- simple conditionals
+- visible error handling
+- small helpers
+- local reasoning
+
+Avoid:
+
+- hidden side effects
+- magical global state
+- unnecessary metaprogramming
+- overly generic abstractions
+- clever one-liners
+- implicit behavior
+- unnecessary concurrency
+
+Readable code is better than clever code.
+
+---
+
+## 11. Handle Errors Deliberately
+
+Do not ignore errors.
+
+Do not swallow exceptions silently.
+
+Do not return vague errors when a meaningful error is possible.
+
+For user-facing errors:
+
+- make the message understandable
+- avoid leaking sensitive internals
+- preserve useful context
+- use consistent error patterns when the project has one
+
+For internal errors:
+
+- log enough context for debugging
+- avoid logging secrets
+- preserve stack traces where appropriate
+- fail safely
+
+Do not expose secrets, credentials, stack traces, tokens, or sensitive data to users.
+
+---
+
+## 12. Security and Privacy Guardrails
+
+Treat security-sensitive code carefully.
+
+Do not:
+
+- hardcode secrets
+- log secrets
+- expose credentials
+- weaken authentication
+- bypass authorization
+- disable validation
+- disable TLS verification
+- ignore permission checks
+- introduce unsafe deserialization
+- introduce SQL injection risks
+- introduce command injection risks
+- trust unvalidated user input
+
+If security requirements are unclear, choose the safer default.
+
+If a task asks for something unsafe, explain the risk and suggest a safer alternative.
+
+---
+
+## 13. Data and Persistence Guardrails
+
+Be careful with persistent data.
+
+Before changing data models, schemas, migrations, or storage behavior, identify:
+
+- backward compatibility impact
+- migration requirements
+- existing data impact
+- rollback concerns
+- indexes or constraints
+- validation rules
+- idempotency or duplicate behavior
+
+Do not casually delete data.
+
+Do not change persistence semantics silently.
+
+Do not use in-memory storage for durable state unless the project explicitly allows it.
+
+---
+
+## 14. API and Interface Guardrails
+
+Public interfaces are contracts.
+
+Be careful when changing:
+
+- HTTP endpoints
+- request bodies
+- response bodies
+- status codes
+- function signatures
+- CLI arguments
+- config keys
+- environment variables
+- file formats
+- database schemas
+- event/message formats
+
+Avoid breaking changes unless explicitly requested.
+
+If a breaking change is required, document it clearly and update tests.
+
+---
+
+## 15. Dependency Guardrails
+
+Do not add dependencies casually.
+
+Before adding a dependency, consider:
+
+- whether the standard library or existing dependency is enough
+- maintenance burden
+- security risk
+- package size
+- compatibility
+- deployment impact
+- test impact
+
+Prefer existing dependencies.
+
+If adding a dependency is justified, explain why.
+
+Do not upgrade dependencies unless the task requires it.
+
+---
+
+## 16. Performance Guardrails
+
+Do not prematurely optimize.
+
+First make the behavior correct and tested.
+
+Then optimize only when:
+
+- there is a demonstrated need
+- the task requires it
+- the current implementation is clearly inefficient for expected use
+
+Avoid:
+
+- unnecessary caching
+- unnecessary concurrency
+- complex batching
+- speculative scaling architecture
+
+When performance matters, state the expected bottleneck and verification approach.
+
+---
+
+## 17. Concurrency and Async Guardrails
+
+Do not introduce concurrency or async complexity unless needed.
+
+Before adding concurrency, consider:
+
+- correctness
+- race conditions
+- locking
+- retries
+- cancellation
+- ordering
+- idempotency
+- failure modes
+- testability
+
+Prefer synchronous, simple logic unless async behavior is required.
+
+If async or concurrent behavior is required, keep it isolated and testable.
+
+---
+
+## 18. Configuration Guardrails
+
+Do not hardcode environment-specific values.
+
+Use the project’s existing configuration pattern.
+
+If adding configuration:
+
+- choose clear names
+- provide safe defaults when appropriate
+- document required values
+- avoid secrets in code
+- avoid changing existing config behavior unexpectedly
+
+Do not add speculative configurability.
+
+---
+
+## 19. Logging and Observability Guardrails
+
+Add logs when they help operate or debug the system.
+
+Do not add noisy logs.
+
+Do not log secrets or sensitive data.
+
+Prefer structured, contextual logs when the project supports them.
+
+Useful log context may include:
+
+- request id
+- operation name
+- entity id
+- status
+- duration
+- error code
+
+Do not replace proper tests with logs.
+
+---
+
+## 20. Documentation Guardrails
+
+Update documentation when behavior, setup, commands, APIs, or configuration changes.
+
+Documentation should be:
+
+- accurate
+- concise
+- actionable
+- easy to follow
+
+Avoid long theoretical documentation unless requested.
+
+Prefer examples and verification commands.
+
+If something is intentionally deferred, document it as a future improvement.
+
+---
+
+## 21. Report Clearly After Changes
+
+After completing a task, summarize briefly:
+
+- what changed
+- why it changed
+- files touched
+- tests added or updated
+- verification commands run
+- what was not verified
+- follow-up risks or TODOs
+
+Example:
+
+```text
+Changed:
+- Added duplicate request handling in the service layer.
+- Added a uniqueness check in the repository.
+- Added API tests for duplicate submission.
+
+Verified:
+- pytest -q
+
+Not verified:
+- Docker build was not run.
+```
+
+Do not exaggerate.
+
+Do not hide uncertainty.
+
+---
+
+## 22. Refactoring Rules
+
+Refactor only when it supports the current task.
+
+Acceptable refactors:
+
+- extracting duplicated logic needed for the change
+- simplifying code touched by the change
+- isolating logic to make behavior testable
+- reducing risk in the current implementation
+
+Avoid:
+
+- broad cleanup
+- style-only refactors
+- architecture rewrites
+- moving files without functional need
+- renaming for preference
+
+If a refactor is larger than the feature itself, pause and explain.
+
+---
+
+## 23. Debugging Rules
+
+When debugging:
+
+1. Reproduce the issue.
+2. Identify the smallest failing case.
+3. Inspect relevant code.
+4. Form a hypothesis.
+5. Make a small change.
+6. Verify.
+7. Avoid random edits.
+
+Do not shotgun changes.
+
+Do not patch symptoms without understanding the cause.
+
+If the root cause is unknown, say so.
+
+---
+
+## 24. Failure Handling
+
+If blocked, do not pretend.
+
+Say clearly:
+
+- what was attempted
+- what failed
+- what is known
+- what is unknown
+- what should be tried next
+
+Prefer partial, verified progress over unverified completion.
+
+---
+
+## 25. Project-Specific Instructions Belong Elsewhere
+
+This file is intentionally general.
+
+Do not put project-specific requirements here.
+
+Use separate project files for project-specific details, such as:
+
+- `SPEC.md`
+- `README.md`
+- issue description
+- task prompt
+- architecture decision record
+- project-specific agent instructions
+
+This file defines how the AI should work.
+The project spec defines what the AI should build.
+
+---
+
+## Golden Rule
+
+Do not guess silently.
+
+Do not overbuild.
+
+Do not edit unrelated code.
+
+Do not claim success without verification.
+
+Small, correct, tested, reviewable changes win.
+
 
 ```text
 app/
