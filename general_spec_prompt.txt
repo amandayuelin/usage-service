@@ -1,0 +1,675 @@
+You are my senior backend engineering assistant for a timed backend engineering interview project.
+
+I want to use spec-driven development.
+
+Before writing any implementation code, create a concise but complete SPEC.md for the service described at the bottom of this prompt.
+
+The goal is to build a production-candidate REST API service, not a toy script.
+
+The implementation target is:
+
+- Python
+- FastAPI
+- PostgreSQL
+- Docker
+- docker-compose
+- DigitalOcean App Platform deployment
+- DigitalOcean Managed PostgreSQL
+- DigitalOcean Managed Kafka and App Platform Workers when async processing is required or justified
+
+The SPEC.md should guide implementation, testing, Dockerization, DigitalOcean deployment, and architecture review.
+
+Follow these principles:
+
+- Think before coding.
+- Do not silently invent requirements.
+- State assumptions explicitly.
+- Prefer simple, working, testable software over over-engineering.
+- Keep the MVP small enough to implement, test, Dockerize, and deploy within a 3-hour interview.
+- Focus on engineering quality, testing, automation/workflow, and operational excellence.
+- Use PostgreSQL as the durable source of truth.
+- Do not use SQLite.
+- Use DigitalOcean App Platform ingress/load balancing as the deployment ingress layer.
+- Use Kafka and worker processing when the problem explicitly requires async processing, high throughput, buffering, retry, or background processing.
+- If Kafka is not necessary for the MVP, document it as the production evolution.
+- If the problem provides DAU, throughput, latency, consistency, retention, or failure-recovery requirements, use those numbers to choose the simplest design that satisfies them.
+- Do not add distributed-system components beyond what the requirements justify.
+- Document future production improvements separately from the initial implementation.
+
+Create SPEC.md with the following sections:
+
+# SPEC.md
+
+## 1. Problem Statement
+
+Restate the problem in 3-5 clear sentences.
+
+Explain:
+- what data is ingested or created
+- how the data is processed
+- what users or internal services can query
+- what the service is responsible for
+- what correctness means for this problem
+
+## 2. Requirements and Scale Inputs
+
+Extract all explicit requirements from the problem statement and the scale/non-functional requirements section.
+
+Include:
+- functional requirements
+- non-functional requirements
+- DAU, MAU, QPS, events/sec, throughput, or burst requirements if provided
+- latency requirements if provided
+- consistency requirements if provided
+- retention requirements if provided
+- payload size assumptions if provided
+- deployment requirements if provided
+- failure/retry requirements if provided
+
+If scale numbers are missing, state simple assumptions for the MVP and clearly mark them as assumptions.
+
+If scale numbers are provided, explain how they affect:
+- synchronous vs asynchronous processing
+- database schema and indexes
+- need for Kafka
+- worker count
+- batching
+- pagination
+- retention
+- observability
+
+## 3. Clarifying Questions
+
+List the most important questions to ask the interviewer before implementation.
+
+Focus on questions that affect:
+- API behavior
+- data model
+- idempotency
+- processing semantics
+- synchronous vs asynchronous behavior
+- persistence
+- validation
+- deployment
+- concurrency
+- throughput
+- retention
+- operational expectations
+
+If a question is not answered, choose a simple assumption for the MVP.
+
+## 4. Assumptions
+
+State explicit MVP assumptions.
+
+Include assumptions about:
+- unique identifiers
+- idempotency key, if applicable
+- supported resource/event/job/metric types, if applicable
+- synchronous vs asynchronous processing
+- PostgreSQL as source of truth
+- DigitalOcean App Platform as deployment target
+- App Platform ingress/load balancing
+- Managed Kafka usage, if required or justified
+- worker processing model, if async is required
+- pagination, if list endpoints exist
+- validation boundaries
+- duplicate behavior, if duplicate submissions are possible
+
+## 5. Goals
+
+List the functional goals of the service.
+
+Adapt to the problem, but usually include:
+- ingest or create core records/resources
+- validate input
+- persist raw records or domain entities in PostgreSQL
+- process records into useful state, result, status, summary, or aggregate
+- handle duplicates or idempotency if applicable
+- expose query endpoints
+- expose status/result/summary endpoints if applicable
+- provide health/readiness endpoints
+- support automated testing
+- support Dockerized local development
+- support deployment to DigitalOcean App Platform
+- support worker processing if async is required
+
+## 6. Non-Goals
+
+List what should not be implemented in the initial time-boxed MVP unless explicitly required.
+
+Usually defer:
+- full production Kafka hardening if not required
+- complex retry/DLQ implementation
+- Redis or cache
+- OAuth/RBAC
+- Prometheus/Grafana
+- OpenTelemetry
+- Kubernetes
+- complex CI/CD
+- multi-region deployment
+- advanced admin UI
+- complex migration tooling
+- full load/performance testing
+
+State that these are future production improvements.
+
+## 7. Architecture Overview
+
+Define both:
+
+### MVP Architecture
+
+Describe the smallest deployable architecture.
+
+Usually one of:
+
+A. Synchronous MVP:
+
+Client
+-> App Platform ingress/load balancing
+-> FastAPI web service
+-> PostgreSQL
+
+B. Async MVP:
+
+Client
+-> App Platform ingress/load balancing
+-> FastAPI web service
+-> Managed Kafka
+-> App Platform worker
+-> PostgreSQL
+
+C. Hybrid MVP:
+
+Client
+-> App Platform ingress/load balancing
+-> FastAPI web service
+-> PostgreSQL for correctness-critical operations
+
+Client
+-> App Platform ingress/load balancing
+-> FastAPI web service
+-> Managed Kafka
+-> App Platform worker
+-> PostgreSQL for high-volume async ingestion
+
+Choose the simplest architecture that satisfies the problem statement and scale inputs.
+
+### Production Architecture
+
+Describe the production evolution.
+
+Include when relevant:
+- App Platform ingress/load balancing
+- multiple stateless FastAPI web service replicas
+- DigitalOcean Managed PostgreSQL
+- DigitalOcean Managed Kafka
+- App Platform worker replicas
+- retry and DLQ
+- transactional outbox if events must be published after DB commit
+- request IDs
+- structured logs
+- metrics and alerts
+- rate limiting
+- auth/authz
+- schema migrations
+
+## 8. API Contract
+
+Define the REST API before implementation.
+
+Always include:
+- GET /healthz
+- GET /readyz
+
+Then define the smallest useful problem-specific API.
+
+For async processing, include:
+- POST endpoint returns 202 Accepted
+- status endpoint for processing state/result
+
+For each endpoint, define:
+- method and path
+- purpose
+- request body, if applicable
+- success response example
+- error cases
+- HTTP status codes
+
+Keep API paths simple for the interview MVP.
+
+Do not introduce /api/v1 unless there is a clear reason.
+
+## 9. Data Model
+
+Define the core PostgreSQL-backed entities.
+
+For each entity, include:
+- fields
+- high-level types
+- required fields
+- relationships
+- indexes
+- uniqueness constraints
+- status fields, if applicable
+- timestamps such as created_at and updated_at
+
+If the service ingests external records or events, define:
+- raw input record table, if useful
+- derived state/result/aggregate table, if useful
+- natural idempotency key such as event_id, request_id, source + external_id, customer_id + external_id, resource_id + timestamp, or job_id
+
+For async workflows, include fields such as:
+- status: PENDING, PROCESSING, PROCESSED, FAILED
+- retry_count
+- last_error
+- processed_at
+
+Add indexes for common query patterns:
+- id
+- customer_id/account_id/resource_id, if applicable
+- status, if applicable
+- type/category, if applicable
+- timestamp/created_at, if applicable
+- idempotency key, if applicable
+
+## 10. Processing Rules
+
+Define how incoming data is processed.
+
+Include:
+- validation
+- deduplication/idempotency, if applicable
+- persistence of raw records or domain entities
+- transformation or calculation
+- aggregate/status/result updates
+- edge cases
+- failure behavior
+- whether the endpoint mutates state or is a dry-run query
+
+If synchronous:
+- explain why synchronous processing is sufficient for the MVP.
+
+If asynchronous:
+- explain why async is required.
+- define what the API writes before returning 202.
+- define what message is published to Kafka.
+- define what the worker consumes.
+- define how worker processing updates PostgreSQL.
+- define retry and failure behavior for the MVP.
+
+## 11. Idempotency / Duplicate Handling
+
+Define duplicate behavior if the problem includes retries, external events, repeated submissions, or client-generated IDs.
+
+Include:
+- idempotency key
+- first request behavior
+- duplicate request behavior
+- expected status codes
+- how duplicate processing is avoided
+- how database uniqueness constraints support correctness
+- how duplicates are handled across API and worker processing if async
+
+Choose one MVP behavior:
+- return 409 conflict for duplicate submissions, or
+- return 200 with existing result and idempotent_replay=true
+
+Prefer whichever is simpler and easier to explain, but state the trade-off.
+
+If idempotency is not applicable, explicitly say so.
+
+## 12. Transaction and Concurrency Considerations
+
+Define the transaction boundary.
+
+Include:
+- which operations must happen atomically
+- which records should be inserted or updated together
+- what can go wrong under concurrent requests
+- what the MVP handles
+- what production should improve
+
+For async Kafka workflows, explain the reliability boundary:
+- API validates request
+- API writes durable record to PostgreSQL, if needed
+- API publishes a Kafka message, if needed
+- worker processes message idempotently
+- worker updates PostgreSQL transactionally
+
+If DB update and Kafka publish both matter, discuss:
+- MVP approach
+- transactional outbox as production improvement
+- duplicate message handling by idempotent worker
+
+If the problem involves quota, inventory allocation, scheduling, reservations, resource limits, or other correctness-critical decisions, explain stronger production concurrency options:
+- row-level locking
+- optimistic locking
+- atomic update pattern
+- uniqueness constraints
+- serializable transactions, if justified
+
+## 13. Kafka and Worker Design
+
+Only include this as an implemented MVP component if async is required or justified by scale.
+
+If implemented:
+- define Kafka topic names
+- define message schema
+- define partition key
+- define consumer group
+- define worker responsibilities
+- define retry behavior
+- define DLQ behavior for production
+- define worker idempotency
+- define what happens if processing fails
+- define what metrics should be emitted
+
+If not implemented:
+- state why Kafka is deferred from the MVP
+- describe when Kafka should be added in production
+- describe how the current service boundaries support that evolution
+
+Prefer DigitalOcean Managed Kafka for production.
+
+Prefer App Platform workers for consumers.
+
+## 14. Validation Rules
+
+Define:
+- required fields
+- non-empty strings
+- positive numeric values, where applicable
+- valid timestamps, where applicable
+- supported enum values, if applicable
+- payload shape
+- pagination limits, if applicable
+- domain-specific validation
+
+For Python/FastAPI:
+- use Pydantic models at the API boundary
+- use domain validation in the service layer when needed
+
+## 15. Error Handling
+
+Use one consistent JSON error shape:
+
+{
+  "error": {
+    "code": "string",
+    "message": "string",
+    "request_id": "string",
+    "details": {}
+  }
+}
+
+Define common error cases and status codes:
+- 400 validation_error or bad_request
+- 404 not_found
+- 409 conflict or duplicate submission, when applicable
+- 422 request validation error, if using FastAPI defaults or custom mapping
+- 500 internal_server_error
+- 503 dependency_unavailable
+
+Errors should be safe for clients and should not expose stack traces.
+
+## 16. Operational Requirements
+
+Define live-service behavior:
+- request ID support using X-Request-ID
+- generate request ID if missing
+- include request ID in response headers
+- include request ID in error bodies, if practical
+- structured or contextual application logs
+- /healthz endpoint for liveness
+- /readyz endpoint for database readiness and Kafka readiness if Kafka is part of MVP
+- environment-based configuration
+- safe error responses
+- stateless API design
+- bounded inputs, where appropriate
+
+Suggested environment variables:
+- PORT
+- DATABASE_URL
+- KAFKA_BOOTSTRAP_SERVERS, if Kafka is used
+- KAFKA_USERNAME, if Kafka is used
+- KAFKA_PASSWORD, if Kafka is used
+- KAFKA_TOPIC, if Kafka is used
+- LOG_LEVEL
+- ENVIRONMENT
+- MAX_PAGE_SIZE
+
+Do not let observability block core delivery.
+
+## 17. Testing Strategy
+
+Define unit tests, API tests, and worker tests if async is implemented.
+
+Adapt tests to the actual problem.
+
+Usually include:
+- health endpoint
+- readiness endpoint
+- successful create/ingest path
+- validation failure
+- duplicate/idempotency behavior, if applicable
+- get by id success
+- get by id not found
+- list endpoint, if applicable
+- status/result/summary endpoint, if applicable
+- processing/business rules
+- structured error response
+
+If Kafka/worker is implemented:
+- test publisher behavior with a mock or fake
+- test worker processing logic independently from Kafka
+- test idempotent worker behavior
+- avoid requiring a real Kafka broker for all unit tests
+- document integration testing strategy
+
+For Python/FastAPI:
+- use pytest
+- use FastAPI TestClient or httpx
+- use test database configuration
+- keep tests deterministic
+
+## 18. Automation and Workflow
+
+Define expected project workflow:
+- requirements.txt or pyproject.toml
+- Dockerfile
+- docker-compose.yml for local PostgreSQL
+- Kafka in docker-compose only if MVP implements Kafka locally
+- README.md
+- .env.example
+- one-command local run
+- one-command test
+- Docker build/run commands
+- smoke test commands
+
+Suggested commands:
+- python -m venv .venv
+- pip install -r requirements.txt
+- pytest
+- uvicorn app.main:app --host 0.0.0.0 --port 8000
+- docker compose up -d db
+- docker build -t interview-service .
+- docker run ...
+
+README should include:
+- overview
+- architecture
+- endpoints
+- example requests
+- environment variables
+- local setup
+- tests
+- Docker usage
+- DigitalOcean deployment notes
+- smoke tests
+- trade-offs
+- future improvements
+
+## 19. Deployment Plan
+
+Target DigitalOcean App Platform.
+
+Prefer:
+- GitHub repo connected to App Platform
+- Dockerized deployment
+- environment variables for configuration
+- DigitalOcean Managed PostgreSQL
+- DigitalOcean Managed Kafka if async is required or implemented
+- App Platform web service for FastAPI
+- App Platform worker component if Kafka consumer is implemented
+- health check path /healthz
+- configured runtime port via PORT
+
+Include smoke tests for deployed service:
+- GET /healthz
+- GET /readyz
+- one representative POST/create/ingest endpoint
+- one representative GET/query/status endpoint
+
+Mention that App Platform ingress/load balancing handles external routing for the MVP deployment.
+
+## 20. Scalability Considerations
+
+Explain how the initial version scales:
+- stateless FastAPI web service
+- App Platform ingress/load balancing
+- external PostgreSQL
+- indexed queries
+- aggregate/status/result tables, where appropriate
+- bounded request payloads
+- pagination, where appropriate
+- horizontal scaling on App Platform
+- Kafka partitioning and worker replicas, if async is part of MVP
+
+Use provided scale numbers to justify:
+- whether synchronous processing is enough
+- whether Kafka is required
+- expected bottlenecks
+- database index choices
+- worker count and partition key
+- retention and cleanup strategy
+
+Also explain future production evolution:
+- Managed Kafka for high-volume ingestion if not already used
+- App Platform worker consumers
+- retry policy
+- dead-letter topic
+- transactional outbox
+- Redis/Valkey for cache or rate limiting
+- metrics and tracing
+- authentication/authorization
+- database migrations
+- CI/CD pipeline
+- load/performance testing
+
+## 21. Observability Plan
+
+Define MVP observability:
+- request_id in logs and responses
+- structured logs for key operations
+- health and readiness endpoints
+- basic application counters in logs if metrics system is not implemented
+- clear error codes
+- deployment smoke tests
+
+Define production observability:
+- request rate
+- latency p50/p95/p99
+- 4xx/5xx rate
+- database latency
+- database connection pool usage
+- Kafka publish failures, if Kafka is used
+- Kafka consumer lag, if Kafka is used
+- worker processing latency, if workers are used
+- retry count and DLQ count, if async is used
+- domain/business metrics relevant to the problem
+- alerts on error rate, latency, dependency failures, worker lag, and DLQ growth
+
+## 22. Trade-offs
+
+Explain important trade-offs.
+
+Include:
+- why the selected MVP architecture is appropriate for the provided requirements
+- why synchronous or asynchronous processing was chosen
+- why Kafka/worker is included or deferred
+- why PostgreSQL is the source of truth
+- why derived state, aggregate tables, or status tables may be useful
+- why transaction-aware design matters for correctness-critical workflows
+- why the design focuses on a production-candidate slice rather than a half-finished distributed system
+- what would be added next in a real production environment
+
+## 23. Future Production Improvements
+
+List future improvements separately from the initial implementation.
+
+Include only if relevant:
+- Managed Kafka async ingestion path
+- App Platform worker service
+- retry and dead-letter handling
+- transactional outbox
+- stronger concurrency control
+- rate limiting
+- caching
+- authentication/authorization
+- audit logs
+- metrics
+- tracing
+- schema migrations
+- CI/CD
+- load/performance testing
+- retention/downsampling if metric or event data is large
+
+Important constraints:
+- Do not write implementation code yet.
+- Do not create files other than SPEC.md yet.
+- Keep the spec practical and implementable within a timed interview.
+- Make assumptions explicit.
+- Keep the initial implementation scope focused.
+- Avoid unnecessary complexity.
+- Use Python/FastAPI terminology where relevant.
+- The spec should be detailed enough that implementation can follow it directly.
+- If requirements include DAU, throughput, latency, retention, consistency, retry, or async constraints, incorporate them into the architecture and trade-offs.
+- If requirements do not justify Kafka in the MVP, document Kafka as production evolution rather than implementing it.
+
+If the problem statement is vague, infer the smallest reasonable Python FastAPI REST API service that handles data ingestion and processing.
+
+Use the following interpretation framework:
+1. Identify the ingested data.
+2. Identify the processing.
+3. Identify the queries.
+4. Identify the persistence model.
+5. Identify operational requirements.
+6. Identify whether scale or async requirements justify Kafka and workers in the MVP.
+
+For the MVP, choose the smallest useful API contract that demonstrates:
+- clean Python/FastAPI organization
+- PostgreSQL persistence
+- validation with Pydantic
+- idempotency or duplicate handling, if applicable
+- meaningful error handling
+- tests
+- Docker workflow
+- DigitalOcean App Platform deployment readiness
+- operational thinking
+- Kafka/worker design only when required or justified
+
+Do not overbuild. Choose the best design for the stated requirements, and explicitly explain the trade-offs.
+
+========================
+REPLACE ONLY THIS SECTION
+========================
+
+PROBLEM STATEMENT:
+
+[PASTE INTERVIEW PROBLEM HERE]
+
+OPTIONAL SCALE / NON-FUNCTIONAL REQUIREMENTS:
+
+[PASTE ANY PROVIDED DAU, QPS, EVENTS/SEC, LATENCY, RETENTION, CONSISTENCY, RETRY, FAILURE, OR DEPLOYMENT REQUIREMENTS HERE. IF NOT PROVIDED, WRITE "Not provided."]
